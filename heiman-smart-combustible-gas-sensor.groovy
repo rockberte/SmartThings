@@ -14,8 +14,10 @@
  */
 metadata {
 	definition (name: "HEIMAN Smart Combustible Gas Sensor", namespace: "rockberte", author: "Bernd Brachmaier", cstHandler: true) {
-    	capability "Sensor"
         capability "Smoke Detector"
+        capability "Health Check"
+        
+        attribute "applicationVersion", "String"
 
 		fingerprint mfr: "0260", prod: "8003", model: "1000", deviceJoinName: "Combustible Gas Sensor"
 	}
@@ -38,6 +40,38 @@ metadata {
 	}
 }
 
+def installed() {
+	log.debug "installed()"
+    sendCheckIntervalEvent()
+}
+
+def updated() {
+	log.debug "updated()"
+    sendCheckIntervalEvent()
+}
+
+def sendCheckIntervalEvent() {
+	// Device-Watch simply pings if no device events received for 8h2m (checkInterval)
+	sendEvent(name: "checkInterval", value: 8 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
+}
+
+// PING is used by Device-Watch in attempt to reach the Device
+def ping() {
+    log.debug "ping()"
+    
+    def cmds = []    
+    cmds << zwave.versionV1.versionGet()    
+    secureSequence(cmds)
+}
+
+def secure(physicalgraph.zwave.Command cmd) {
+    cmd.format()
+}
+
+def secureSequence(commands, delay=1500) {
+    delayBetween(commands.collect{ secure(it) }, delay)
+}
+
 // parse events into attributes
 def parse(String description) {
 	log.debug "parse() >> description: ${description}"
@@ -51,6 +85,11 @@ def parse(String description) {
         log.debug "parse() >> not parsed description: ${description}"
     }
     result
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.versionv1.VersionReport cmd) {
+	log.info "Executing zwaveEvent 86 (VersionReportV1) with cmd: $cmd"
+    sendEvent([name: "applicationVersion", value: String.format("%d.%02d", cmd.applicationVersion, cmd.applicationSubVersion)])
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.notificationv3.NotificationReport cmd) {
