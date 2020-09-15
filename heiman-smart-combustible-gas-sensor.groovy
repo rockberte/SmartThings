@@ -45,11 +45,6 @@ def installed() {
     sendCheckIntervalEvent()
 }
 
-def updated() {
-	log.debug "updated()"
-    sendCheckIntervalEvent()
-}
-
 def sendCheckIntervalEvent() {
 	// Device-Watch simply pings if no device events received for 8h2m (checkInterval)
 	sendEvent(name: "checkInterval", value: 8 * 60 * 60 + 2 * 60, displayed: false, data: [protocol: "zwave", hubHardwareId: device.hub.hardwareID])
