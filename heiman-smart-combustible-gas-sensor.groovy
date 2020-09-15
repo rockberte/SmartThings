@@ -83,7 +83,7 @@ def parse(String description) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.versionv1.VersionReport cmd) {
-	log.info "Executing zwaveEvent 86 (VersionReportV1) with cmd: $cmd"
+	log.info "Executing zwaveEvent 86 (VersionV1): 12 (VersionReport) with cmd: $cmd"
     sendEvent([name: "applicationVersion", value: String.format("%d.%02d", cmd.applicationVersion, cmd.applicationSubVersion)])
 }
 
