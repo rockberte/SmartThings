@@ -1,4 +1,4 @@
-# HEIMAN Gas Senser HS1CG SmartThings Device Handler
+# HEIMAN Gas Sensor HS1CG SmartThings Device Handler
 Samsung SmartThings Z-Wave device handler for the HEIMAN Smart Combustible Gas Sensor HS1CG.
 
 The device handler uses the smart things "Smoke Detector" capability as no "Gas Detector" or "Gas Sensor" capability is currently available in the SmartThings capabilities reference.
