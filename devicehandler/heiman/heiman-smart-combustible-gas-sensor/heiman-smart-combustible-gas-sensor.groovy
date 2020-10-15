@@ -13,7 +13,7 @@
  *  for the specific language governing permissions and limitations under the License.
  */
 metadata {
-	definition (name: "HEIMAN Smart Combustible Gas Sensor", namespace: "rockberte", author: "Bernd Brachmaier", cstHandler: true) {
+	definition (name: "HEIMAN Smart Combustible Gas Sensor", namespace: "rockberte", author: "Bernd Brachmaier", cstHandler: true, mnmn: "SmartThings", vid: "SmartThings-smartthings-Orvibo_Gas_Sensor") {
         capability "Smoke Detector"
         capability "Health Check"
         
