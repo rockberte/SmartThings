@@ -15,6 +15,7 @@
  */
 metadata {
 	definition (name: "POPP Thermostatic Radiator Valve", namespace: "rockberte", author: "Bernd Brachmaier") {
+		capability "Switch"	
 		capability "Temperature Measurement"
 		capability "Thermostat Heating Setpoint"
 		capability "Battery"
@@ -80,7 +81,12 @@ def installed() {
 }
 
 def updated() {
+	if(state.lastUpdated && (now() - state.lastUpdated) < 500 ) {
+		return
+	}
 	log.debug("${device.displayName} - updated()")
+	// TODO: this is a battery device that must be awake, consider this while updating the device handler
+	// TODO: currently the device must be awake while we updated() gets called, otherwise we'll never initialize the device
 	// If not set update ManufacturerSpecific data
 	if (!getDataValue("manufacturer")) {
 		sendHubCommand(new physicalgraph.device.HubAction(zwave.manufacturerSpecificV2.manufacturerSpecificGet().format()))
@@ -88,6 +94,7 @@ def updated() {
 	} else {
 		initialize()
 	}
+	state.lastUpdated = now()
 }
 
 def initialize() {
@@ -96,6 +103,7 @@ def initialize() {
 	pollDevice()
 }
 
+// z-wave event handling
 def parse(String description) {
 	log.debug("parse() >> description: ${description}")
 	def result = null
@@ -150,12 +158,12 @@ def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv3.SensorMultilevelR
 def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpointReport cmd) {
 	log.debug("${device.displayName} - ThermostatSetpointReport received, value: ${cmd.setpointType}")
 	if(cmd.setpointType == 1) {
-    	def heatingSetpoint = getTempInDeviceScale("heatingSetpoint")
+		def heatingSetpoint = getTempInDeviceScale("heatingSetpoint")
 		if(state.pendingHeatingSetpoint == null && state.deviceHeatingSetpoint != cmd.scaledValue && heatingSetpoint != cmd.scaledValue) {        
-        	def cmdScale = cmd.scale == 1 ? "F" : "C"
-        	sendHeatingSetpointEvent(cmd.scaledValue, cmdScale, true)
+			def cmdScale = cmd.scale == 1 ? "F" : "C"
+			sendHeatingSetpointEvent(cmd.scaledValue, cmdScale, true)
 		}
-        state.deviceHeatingSetpoint = cmd.scaledValue
+		state.deviceHeatingSetpoint = cmd.scaledValue
 	} else {
 		log.warn("${device.displayName} - Unexpected setpointType received in ThermostatSetpointReport: ${cmd.setpointType}")
 	}	
@@ -190,20 +198,35 @@ def zwaveEvent(physicalgraph.zwave.Command cmd) {
 	log.warn("Unexpected zwave command ${cmd}")
 }
 
-def sync() {
-	log.debug("${device.displayName} - Executing sync()")
-	def cmds = []
-    if(state.pendingHeatingSetpoint) {
-    	log.debug("${device.displayName} - setting new setpoint to ${state.pendingHeatingSetpoint}")
-        cmds << zwave.thermostatSetpointV1.thermostatSetpointSet(setpointType: 1, scale: state.scale,
-                precision: state.precision, scaledValue: state.pendingHeatingSetpoint)
-        cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
-    }
-    cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
-    state.pendingHeatingSetpoint = null
-	sendHubCommand(cmds, 1500)
+// capabilities commands
+def setHeatingSetpoint(degrees) {
+	log.debug("${device.displayName} - setHeatingSetpoint(${degrees})")
+	if (degrees) {
+		state.heatingSetpoint = degrees.toDouble()
+		runIn(2, "updateHeatingSetpoint", [overwrite: true])
+	}
 }
 
+def on() {
+	log.debug("${device.displayName} - on()")
+	// TODO: should we switch back to the last "thermostatMode" set before off()
+	if(state.thermostatMode == "heat")
+		return
+	state.thermostatMode = "heat" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
+	getTempInLocalScale(state.lastHeatHeatingSetpoint, getDeviceScale())
+	setHeatingSetpoint(getTempInLocalScale(4, "C"))
+}
+
+def off() {
+	log.debug("${device.displayName} - off()")
+	if(state.thermostatMode == "off")
+		return
+	state.thermostatMode = "off" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
+	state.lastHeatHeatingSetpoint = getTempInDeviceScale("heatingSetpoint")
+	setHeatingSetpoint(getTempInLocalScale(4, "C"))
+}
+
+// device handler commands
 def raiseHeatingSetpoint() {
 	log.debug("${device.displayName} - raising heating setpoint")
 	// alterSetpoint(true, "heatingSetpoint")
@@ -212,6 +235,20 @@ def raiseHeatingSetpoint() {
 def lowerHeatingSetpoint() {
 	log.debug("${device.displayName} - lowering heating setpoint")
 	// alterSetpoint(false, "heatingSetpoint")
+}
+
+def sync() {
+	log.debug("${device.displayName} - Executing sync()")
+	def cmds = []
+	if(state.pendingHeatingSetpoint && state.pendingHeatingSetpoint != state.deviceHeatingSetpoint) {
+		log.debug("${device.displayName} - setting new setpoint to ${state.pendingHeatingSetpoint}")
+		cmds << zwave.thermostatSetpointV1.thermostatSetpointSet(setpointType: 1, scale: state.scale,
+				precision: state.precision, scaledValue: state.pendingHeatingSetpoint)
+		cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
+	}
+	cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
+	state.pendingHeatingSetpoint = null
+	sendHubCommand(cmds, 1500)
 }
 
 def enforceSetpointLimits(targetValue) {
@@ -228,25 +265,20 @@ def enforceSetpointLimits(targetValue) {
 	return targetValue
 }
 
-def setHeatingSetpoint(degrees) {
-	log.debug("${device.displayName} - setHeatingSetpoint(${degrees})")
-	if (degrees) {
-		state.heatingSetpoint = degrees.toDouble()
-		runIn(2, "updateHeatingSetpoint", [overwrite: true])
-	}
-}
-
 def updateHeatingSetpoint() {
 	log.debug("${device.displayName} - updateHeatingSetpoint()")
-    def heatingSetpoint = enforceSetpointLimits(state.heatingSetpoint) // returns heatingSetpoint in devices scale
-    state.heatingSetpoint = null
-    // update is only needed in case the radiators setpoint differs from the one to send
-    if(state.deviceHeatingSetpoint != heatingSetpoint) {
-    	state.pendingHeatingSetpoint = heatingSetpoint
-    } else {
-    	state.pendingHeatingSetpoint = null
-    }
-    sendHeatingSetpointEvent(heatingSetpoint, state.scale == 1 ? "F" : "C", true) 
+	def heatingSetpoint = enforceSetpointLimits(state.heatingSetpoint) // returns heatingSetpoint in devices scale
+	state.heatingSetpoint = null
+	// update is only needed in case the radiators setpoint differs from the one to send
+	def requiresEvent = false
+	if(state.deviceHeatingSetpoint != heatingSetpoint) {
+		state.pendingHeatingSetpoint = heatingSetpoint
+		requiresEvent = true
+	} else {
+		requiresEvent = state.pendingHeatingSetpoint != null
+		state.pendingHeatingSetpoint = null
+	}
+	sendHeatingSetpointEvent(heatingSetpoint, state.scale == 1 ? "F" : "C", true) 
 }
 
 def sendHeatingSetpointEvent(scaledValue, displayed) {
@@ -255,8 +287,8 @@ def sendHeatingSetpointEvent(scaledValue, displayed) {
 
 def sendHeatingSetpointEvent(scaledValue, scale, displayed) {
 	def setpoint = getTempInLocalScale(scaledValue, scale)
-    def unit = getTemperatureScale()		
-    sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, displayed: displayed)
+	def unit = getTemperatureScale()		
+	sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, displayed: displayed)
 }
 
 def pollDevice() {
@@ -300,6 +332,10 @@ def getTempInDeviceScale(temp, scale) {
 				(deviceScale == "F" ? celsiusToFahrenheit(temp).toDouble().round(0).toInteger() : roundC(fahrenheitToCelsius(temp)))
 	}
 	return 0
+}
+
+def getDeviceScale() {
+	return (state.scale == 1) ? "F" : "C"
 }
 
 def roundC (tempC) {
