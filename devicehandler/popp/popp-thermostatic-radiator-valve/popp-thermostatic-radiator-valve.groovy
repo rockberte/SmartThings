@@ -152,11 +152,11 @@ def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv3.SensorMultilevelR
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpointReport cmd) {
-	log.debug("${device.displayName} - ThermostatSetpointReport received, value: ${cmd.setpointType}")
 	if(cmd.setpointType == 1) {
+		def cmdScale = cmd.scale == 1 ? "F" : "C"
 		def heatingSetpoint = getTempInDeviceScale("heatingSetpoint")
+		log.debug("${device.displayName} - ThermostatSetpointReport received, value: ${cmd.scaledValue} °${cmdScale}")
 		if(state.pendingHeatingSetpoint == null && state.deviceHeatingSetpoint != cmd.scaledValue && heatingSetpoint != cmd.scaledValue) {        
-			def cmdScale = cmd.scale == 1 ? "F" : "C"
 			def switchState = getSwitchState(cmd.scaledValue, cmdScale)
 			if(switchState == "off") {
 				if(state.thermostatMode != "off") {
