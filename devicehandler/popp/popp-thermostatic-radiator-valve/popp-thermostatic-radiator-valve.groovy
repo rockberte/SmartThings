@@ -157,6 +157,16 @@ def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpo
 		def heatingSetpoint = getTempInDeviceScale("heatingSetpoint")
 		if(state.pendingHeatingSetpoint == null && state.deviceHeatingSetpoint != cmd.scaledValue && heatingSetpoint != cmd.scaledValue) {        
 			def cmdScale = cmd.scale == 1 ? "F" : "C"
+			def switchState = getSwitchState(cmd.scaledValue, cmdScale)
+			if(switchState == "off") {
+				if(state.thermostatMode != "off") {
+					state.lastHeatSetpoint = state.deviceHeatingSetpoint
+					state.thermostatMode = "off"
+				}
+			} else {
+				if(state.thermostatMode != "heat")
+					state.thermostatMode = "heat"
+			}
 			sendHeatingSetpointEvent(cmd.scaledValue, cmdScale, true)
 			sendEvent(name: "switch", value: getSwitchState(cmd.scaledValue, cmdScale), displayed: true)
 		}
@@ -205,21 +215,20 @@ def setHeatingSetpoint(degrees) {
 }
 
 def on() {
-	log.debug("${device.displayName} - on()")
-	// TODO: should we switch back to the last "thermostatMode" set before off()
+	log.debug("${device.displayName} - on(), mode=${state.thermostatMode}")
 	if(state.thermostatMode == "heat")
 		return
 	state.thermostatMode = "heat" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
-	def lastHeatingSetpoint = state.lastHeatHeatingSetpoint != null ? getTempInLocalScale(state.lastHeatHeatingSetpoint, getDeviceScale()) : getTempInLocalScale(21, "C")
+	def lastHeatingSetpoint = state.lastHeatSetpoint != null ? getTempInLocalScale(state.lastHeatSetpoint, getDeviceScale()) : getTempInLocalScale(21, "C")
 	setHeatingSetpoint(lastHeatingSetpoint)
 }
 
 def off() {
-	log.debug("${device.displayName} - off()")
+	log.debug("${device.displayName} - off(), mode=${state.thermostatMode}")
 	if(state.thermostatMode == "off")
 		return
 	state.thermostatMode = "off" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
-	state.lastHeatHeatingSetpoint = getTempInDeviceScale("heatingSetpoint")
+	state.lastHeatSetpoint = getTempInDeviceScale("heatingSetpoint")
 	setHeatingSetpoint(getTempInLocalScale(4, "C"))
 }
 
