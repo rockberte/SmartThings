@@ -20,9 +20,6 @@ metadata {
 		capability "Thermostat Heating Setpoint"
 		capability "Battery"
 
-		command "lowerHeatingSetpoint"
-		command "raiseHeatingSetpoint"
-
 		fingerprint mfr:"0002", prod:"0115", model:"A010", deviceJoinName: "POPP Thermostatic Radiator Valve"
 	}
 
@@ -51,23 +48,22 @@ metadata {
 				)
 			}
 		}
-
-		standardTile("lowerHeatingSetpoint", "device.heatingSetpoint", width:2, height:1, inactiveLabel: false, decoration: "flat") {
-			state "heatingSetpoint", action:"lowerHeatingSetpoint", icon:"st.thermostat.thermostat-left"
+		
+		standardTile("switch", "device.switch", height: 2, width: 2, decoration: "flat") {
+			state "off", action:"on", label: "off", icon: "st.thermostat.heating-cooling-off", backgroundColor:"#ffffff"
+			state "on", action:"off", label: "on", icon: "st.thermostat.heat", backgroundColor:"#00a0dc"
 		}
-		valueTile("heatingSetpoint", "device.heatingSetpoint", width:2, height:1, inactiveLabel: false, decoration: "flat") {
+
+		valueTile("heatingSetpoint", "device.heatingSetpoint", width:2, height:2, inactiveLabel: false, decoration: "flat") {
 			state "heatingSetpoint", label:'${currentValue}° heat', backgroundColor:"#ffffff"
 		}
-		standardTile("raiseHeatingSetpoint", "device.heatingSetpoint", width:2, height:1, inactiveLabel: false, decoration: "flat") {
-			state "heatingSetpoint", action:"raiseHeatingSetpoint", icon:"st.thermostat.thermostat-right"
-		}
-
+		
 		valueTile("battery", "device.battery", inactiveLabel: false, width: 2, height: 2, decoration: "flat") {
 			state "battery", label:'${currentValue}%\n battery', unit:"%"
 		}
 
 		main "temperature"
-		details(["temperature", "lowerHeatingSetpoint", "heatingSetpoint", "raiseHeatingSetpoint"])
+		details(["temperature", "heatingSetpoint", "switch", "battery"])
 	}
 }
 
@@ -162,11 +158,12 @@ def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpo
 		if(state.pendingHeatingSetpoint == null && state.deviceHeatingSetpoint != cmd.scaledValue && heatingSetpoint != cmd.scaledValue) {        
 			def cmdScale = cmd.scale == 1 ? "F" : "C"
 			sendHeatingSetpointEvent(cmd.scaledValue, cmdScale, true)
+			sendEvent(name: "switch", value: getSwitchState(cmd.scaledValue, cmdScale), displayed: true)
 		}
 		state.deviceHeatingSetpoint = cmd.scaledValue
 	} else {
 		log.warn("${device.displayName} - Unexpected setpointType received in ThermostatSetpointReport: ${cmd.setpointType}")
-	}	
+	}
 	// So we can respond with same format
 	state.size = cmd.size
 	state.scale = cmd.scale
@@ -213,8 +210,8 @@ def on() {
 	if(state.thermostatMode == "heat")
 		return
 	state.thermostatMode = "heat" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
-	getTempInLocalScale(state.lastHeatHeatingSetpoint, getDeviceScale())
-	setHeatingSetpoint(getTempInLocalScale(4, "C"))
+	def lastHeatingSetpoint = state.lastHeatHeatingSetpoint != null ? getTempInLocalScale(state.lastHeatHeatingSetpoint, getDeviceScale()) : getTempInLocalScale(21, "C")
+	setHeatingSetpoint(lastHeatingSetpoint)
 }
 
 def off() {
@@ -224,17 +221,6 @@ def off() {
 	state.thermostatMode = "off" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
 	state.lastHeatHeatingSetpoint = getTempInDeviceScale("heatingSetpoint")
 	setHeatingSetpoint(getTempInLocalScale(4, "C"))
-}
-
-// device handler commands
-def raiseHeatingSetpoint() {
-	log.debug("${device.displayName} - raising heating setpoint")
-	// alterSetpoint(true, "heatingSetpoint")
-}
-
-def lowerHeatingSetpoint() {
-	log.debug("${device.displayName} - lowering heating setpoint")
-	// alterSetpoint(false, "heatingSetpoint")
 }
 
 def sync() {
@@ -270,25 +256,29 @@ def updateHeatingSetpoint() {
 	def heatingSetpoint = enforceSetpointLimits(state.heatingSetpoint) // returns heatingSetpoint in devices scale
 	state.heatingSetpoint = null
 	// update is only needed in case the radiators setpoint differs from the one to send
-	def requiresEvent = false
 	if(state.deviceHeatingSetpoint != heatingSetpoint) {
 		state.pendingHeatingSetpoint = heatingSetpoint
-		requiresEvent = true
+		sendHeatingSetpointEvent(heatingSetpoint, getDeviceScale(), true)
+		sendEvent(name: "switch", value: getSwitchState(heatingSetpoint, getDeviceScale()), displayed: true)
 	} else {
-		requiresEvent = state.pendingHeatingSetpoint != null
 		state.pendingHeatingSetpoint = null
 	}
-	sendHeatingSetpointEvent(heatingSetpoint, state.scale == 1 ? "F" : "C", true) 
 }
 
 def sendHeatingSetpointEvent(scaledValue, displayed) {
-	sendHeatingSetpointEvent(scaledValue, state.scale == 1 ? "" : "")
+	sendHeatingSetpointEvent(scaledValue, state.scale == 1 ? "F" : "C")
 }
 
 def sendHeatingSetpointEvent(scaledValue, scale, displayed) {
 	def setpoint = getTempInLocalScale(scaledValue, scale)
 	def unit = getTemperatureScale()		
 	sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, displayed: displayed)
+}
+
+def getSwitchState(setpoint, scale) {
+	def offSetpoint = getTempInDeviceScale(4, "C")
+	def setpointInDeviceScale = getTempInDeviceScale(setpoint, scale)
+	return setpointInDeviceScale == offSetpoint ? "off" : "on"
 }
 
 def pollDevice() {
