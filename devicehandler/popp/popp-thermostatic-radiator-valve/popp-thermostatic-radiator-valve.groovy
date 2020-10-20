@@ -160,7 +160,7 @@ def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpo
 			def switchState = getSwitchState(cmd.scaledValue, cmdScale)
 			if(switchState == "off") {
 				if(state.thermostatMode != "off") {
-					state.lastHeatSetpoint = state.deviceHeatingSetpoint
+					state.lastHeatingSetpoint = state.deviceHeatingSetpoint
 					state.thermostatMode = "off"
 				}
 			} else {
@@ -215,20 +215,20 @@ def setHeatingSetpoint(degrees) {
 }
 
 def on() {
-	log.debug("${device.displayName} - on(), mode=${state.thermostatMode}")
+	log.debug("${device.displayName} - on(), currentMode=${state.thermostatMode}")
 	if(state.thermostatMode == "heat")
 		return
 	state.thermostatMode = "heat" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
-	def lastHeatingSetpoint = state.lastHeatSetpoint != null ? getTempInLocalScale(state.lastHeatSetpoint, getDeviceScale()) : getTempInLocalScale(21, "C")
+	def lastHeatingSetpoint = state.lastHeatingSetpoint != null ? getTempInLocalScale(state.lastHeatingSetpoint, getDeviceScale()) : getTempInLocalScale(21, "C")
 	setHeatingSetpoint(lastHeatingSetpoint)
 }
 
 def off() {
-	log.debug("${device.displayName} - off(), mode=${state.thermostatMode}")
+	log.debug("${device.displayName} - off(), currentMode=${state.thermostatMode}")
 	if(state.thermostatMode == "off")
 		return
 	state.thermostatMode = "off" // TODO: use the "Thermostat Mode" capability and store this in the thermostatMode attribute
-	state.lastHeatSetpoint = getTempInDeviceScale("heatingSetpoint")
+	state.lastHeatingSetpoint = getTempInDeviceScale("heatingSetpoint")
 	setHeatingSetpoint(getTempInLocalScale(4, "C"))
 }
 
@@ -265,11 +265,16 @@ def updateHeatingSetpoint() {
 	def heatingSetpoint = enforceSetpointLimits(state.heatingSetpoint) // returns heatingSetpoint in devices scale
 	state.heatingSetpoint = null
 	// update is only needed in case the radiators setpoint differs from the one to send
+	def switchState = getSwitchState(heatingSetpoint, getDeviceScale())
 	if(state.deviceHeatingSetpoint != heatingSetpoint) {
 		state.pendingHeatingSetpoint = heatingSetpoint
 		sendHeatingSetpointEvent(heatingSetpoint, getDeviceScale(), true)
-		sendEvent(name: "switch", value: getSwitchState(heatingSetpoint, getDeviceScale()), displayed: true)
+		sendEvent(name: "switch", value: switchState, displayed: true)
 	} else {
+		if(state.pendingHeatingSetpoint != heatingSetpoint) {
+			sendHeatingSetpointEvent(heatingSetpoint, getDeviceScale(), true)
+			sendEvent(name: "switch", value: switchState, displayed: true)
+		}
 		state.pendingHeatingSetpoint = null
 	}
 }
