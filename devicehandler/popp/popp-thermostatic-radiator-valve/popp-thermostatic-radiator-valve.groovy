@@ -139,12 +139,13 @@ def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv3.SensorMultilevelReport cmd) {
-	log.debug("${device.displayName} - SensorMultilevelReport received, value: ${cmd.sensorType}")
 	if (cmd.sensorType == 1) {
+		def cmdScale = cmd.scale == 1 ? "F" : "C"
+		log.debug("${device.displayName} - SensorMultilevelReport received, value: ${cmd.scaledSensorValue} °${cmdScale}")
 		def map = [:]
-		map.value = getTempInLocalScale(cmd.scaledSensorValue, cmd.scale == 1 ? "F" : "C")
+		map.value = getTempInLocalScale(cmd.scaledSensorValue, cmdScale)
 		map.unit = getTemperatureScale()
-		map.name = "temperature"    
+		map.name = "temperature"
 		sendEvent(map)
 	} else {
 		log.warn("${device.displayName} - Unexpected sensorType received in SensorMultilevelReport: ${cmd.sensorType}")
