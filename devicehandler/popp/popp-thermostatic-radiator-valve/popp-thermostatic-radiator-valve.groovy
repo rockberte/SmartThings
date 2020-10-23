@@ -18,6 +18,7 @@ metadata {
 		capability "Switch"	
 		capability "Temperature Measurement"
 		capability "Thermostat Heating Setpoint"
+		capability "Configuration"
 		capability "Battery"
 
 		fingerprint mfr:"0002", prod:"0115", model:"A010", deviceJoinName: "POPP Thermostatic Radiator Valve"
@@ -65,15 +66,37 @@ metadata {
 		main "temperature"
 		details(["temperature", "heatingSetpoint", "switch", "battery"])
 	}
+
+	preferences {
+		input (
+			title: "Wake up interval",
+			description: "How often should your device automatically sync with the HUB.\nThe lower the value, the shorter the battery life.\n0 or 1-30 (in minutes, default: 5 minutes)",
+			type: "paragraph",
+			element: "paragraph"
+		)
+		
+		input ( 
+			name: "wakeUpInterval", 
+			title: null, 
+			type: "number", 
+			range: "0..30", 
+			defaultValue: 5, 
+			required: false
+		)
+	}
 }
 
 def installed() {
 	log.debug("${device.displayName} - installed()")
-	// Configure device
-	def cmds = [new physicalgraph.device.HubAction(zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:[zwaveHubNodeId]).format()),
-			new physicalgraph.device.HubAction(zwave.manufacturerSpecificV2.manufacturerSpecificGet().format())]
+	// TODO: set initial states
+
+	// configure device
+	/* TODO: check whether this is needed or not */
+	def cmds = []
+	cmds << new physicalgraph.device.HubAction(zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:[zwaveHubNodeId]).format())
 	sendHubCommand(cmds)
-	runIn(3, "initialize", [overwrite: true])  // Allow configure command to be sent and acknowledged before proceeding
+
+	pollDevice()
 }
 
 def updated() {
@@ -81,22 +104,25 @@ def updated() {
 		return
 	}
 	log.debug("${device.displayName} - updated()")
-	// TODO: this is a battery device that must be awake, consider this while updating the device handler
-	// TODO: currently the device must be awake while we updated() gets called, otherwise we'll never initialize the device
-	// If not set update ManufacturerSpecific data
-	if (!getDataValue("manufacturer")) {
-		sendHubCommand(new physicalgraph.device.HubAction(zwave.manufacturerSpecificV2.manufacturerSpecificGet().format()))
-		runIn(2, "initialize", [overwrite: true])  // Allow configure command to be sent and acknowledged before proceeding
-	} else {
-		initialize()
+	def syncNeeded = false
+	if(settings.wakeUpInterval != null) {
+		if(state.wakeUpInterval == null) {
+			state.wakeUpInterval = [value: null, state: "synced"]
+		} 
+		if(state.wakeUpInterval.value != ((settings.wakeUpInterval as Integer) * 60)) { 
+			state.wakeUpInterval.value = ((settings.wakeUpInterval as Integer) * 60)
+			state.wakeUpInterval.state = "notSynced"
+			syncNeeded = true
+		}
+	}
+	if(syncNeeded) { 
+		log.debug("${device.displayName} - sync needed")
 	}
 	state.lastUpdated = now()
 }
 
-def initialize() {
-	log.debug("${device.displayName} - initialize()")
-	unschedule()
-	pollDevice()
+def configure() {
+	log.debug("${device.displayName} - configure()")
 }
 
 // z-wave event handling
@@ -135,21 +161,21 @@ def zwaveEvent(physicalgraph.zwave.commands.batteryv1.BatteryReport cmd) {
 	} else {
 		map.value = cmd.batteryLevel
 	}
-	sendEvent(map)
+	createEvent(map)
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.sensormultilevelv3.SensorMultilevelReport cmd) {
+	def map = [:]
 	if (cmd.sensorType == 1) {
 		def cmdScale = cmd.scale == 1 ? "F" : "C"
 		log.debug("${device.displayName} - SensorMultilevelReport received, value: ${cmd.scaledSensorValue} °${cmdScale}")
-		def map = [:]
 		map.value = getTempInLocalScale(cmd.scaledSensorValue, cmdScale)
 		map.unit = getTemperatureScale()
 		map.name = "temperature"
-		sendEvent(map)
 	} else {
 		log.warn("${device.displayName} - Unexpected sensorType received in SensorMultilevelReport: ${cmd.sensorType}")
 	}
+	createEvent(map)
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.thermostatsetpointv2.ThermostatSetpointReport cmd) {
@@ -198,8 +224,18 @@ def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerS
 
 def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpNotification cmd) {
 	log.debug("${device.displayName} - WakeUpNotification received")
-	sendEvent(descriptionText: "$device.displayName woke up", isStateChange: true)
+	sendEvent(descriptionText: "${device.displayName} woke up", isStateChange: true)
+	def cmds = []
+	if(state.wakeUpInterval?.state == "notSynced" && state.wakeUpInterval?.value != null) {
+		cmds << zwave.wakeUpV2.wakeUpIntervalSet(seconds: state.wakeUpInterval.value as Integer, nodeid: zwaveHubNodeId)
+		state.wakeUpInterval.state = "synced"
+	}
+	// if not set yet, update ManufacturerSpecific data
+	if (!getDataValue("manufacturer")) {
+		cmds << zwave.manufacturerSpecificV2.manufacturerSpecificGet()
+	}
 	runIn(1, "sync")
+	[response(delayBetween(cmds.collect{ it.format() }, 1000))]
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
@@ -294,6 +330,16 @@ def getSwitchState(setpoint, scale) {
 	def offSetpoint = getTempInDeviceScale(4, "C")
 	def setpointInDeviceScale = getTempInDeviceScale(setpoint, scale)
 	return setpointInDeviceScale == offSetpoint ? "off" : "on"
+}
+
+def currentTimeCommand() {
+	def nowCalendar = Calendar.getInstance(location.timeZone)
+	def weekday = nowCalendar.get(Calendar.DAY_OF_WEEK) - 1
+	if (weekday == 0) {
+		weekday = 7
+	}
+	log.debug "currentTimeCommand: hour='${nowCalendar.get(Calendar.HOUR_OF_DAY)}', minute='${nowCalendar.get(Calendar.MINUTE)}', DayNum='${weekday}'"
+	return zwave.clockV1.clockSet(hour: nowCalendar.get(Calendar.HOUR_OF_DAY), minute: nowCalendar.get(Calendar.MINUTE), weekday: weekday)
 }
 
 def pollDevice() {
