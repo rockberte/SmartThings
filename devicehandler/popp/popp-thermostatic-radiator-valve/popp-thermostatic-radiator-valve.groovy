@@ -1,5 +1,5 @@
 /**
- *  POPP Thermostatic Radiator Valve
+ *  Danfoss LC-13 based Thermostatic Radiator Valves (POPP, Devolo, etc.)
  *
  *  Copyright 2020 Bernd Brachmaier
  *
@@ -22,6 +22,7 @@ metadata {
 		capability "Battery"
 
 		fingerprint mfr:"0002", prod:"0115", model:"A010", deviceJoinName: "POPP Thermostatic Radiator Valve"
+		fingerprint mfr:"0002", prod:"0005", model:"0175", deviceJoinName: "Devolo Thermostatic Radiator Valve"
 	}
 
 	tiles {
@@ -114,7 +115,7 @@ def updated() {
 			state.wakeUpInterval.state = "notSynced"
 			syncNeeded = true
 		}
-	}
+	}	
 	if(syncNeeded) { 
 		log.debug("${device.displayName} - sync needed")
 	}
