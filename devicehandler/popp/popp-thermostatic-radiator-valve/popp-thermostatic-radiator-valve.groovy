@@ -87,13 +87,21 @@ metadata {
 	}
 }
 
+def initStates() {
+	if(state.heatingSetpoint == null)
+		state.heatingSetpoint = [pendingValue: null, deviceValue: null, appValue: null]
+	if(state.wakeUpInterval == null)
+		state.wakeUpInterval = [pendingValue: null, deviceValue: null]
+	if(state.protection == null)
+		state.protection = [pendingValue: null, deviceValue: null]
+	state.lastHeatingSetpoint = null
+	if(state.thermostatMode == null)
+		state.thermostatMode = "heat"
+}
+
 def installed() {
 	log.debug("${device.displayName} - installed()")
-	// set initial states
-	state.heatingSetpoint = [pendingValue: null, deviceValue: null, appValue: null]
-	state.wakeUpInterval = [pendingValue: null, deviceValue: null]
-	state.lastHeatingSetpoint = null
-	state.thermostatMode = "heat"
+	initStates()
 	state.initPending = true
 }
 
@@ -102,6 +110,7 @@ def updated() {
 		return
 	}
 	log.debug("${device.displayName} - updated()")
+	initStates()
 	if(settings.wakeUpInterval != null) {
 		def settingsIntervalInSeconds = (settings.wakeUpInterval as Integer) * 60
 		if(state.wakeUpInterval.pendingValue != settingsIntervalInSeconds) { 
@@ -127,7 +136,8 @@ def parse(String description) {
 		// 0x43 = ThermostatSetpoint
 		// 0x31 = SensorMultilevel
 		// 0x84 = WakeUp
-		def zwcmd = zwave.parse(description, [0x80:1, 0x72:2, 0x42:1, 0x43:2, 0x31:3, 0x84:2])
+		// 0x75 = Protection
+		def zwcmd = zwave.parse(description, [0x80:1, 0x72:2, 0x42:1, 0x43:2, 0x31:3, 0x84:2, 0x75:2])
 		if (zwcmd) {
 			result = zwaveEvent(zwcmd)
 		} else {
@@ -228,6 +238,10 @@ def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
 	state.wakeUpInterval.deviceValue = cmd.seconds
 }
 
+def zwaveEvent(physicalgraph.zwave.commands.protectionv2.ProtectionReport cmd) {
+	log.debug("${device.displayName} - ProtectionReport received with localState=${cmd.localProtectionState} rfState=${cmd.rfProtectionState}")
+}
+
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
 	log.warn("Unexpected zwave command ${cmd}")
 }
@@ -267,7 +281,7 @@ def initSync() {
 	cmds << zwave.wakeUpV2.wakeUpIntervalGet()
 	cmds << zwave.sensorMultilevelV2.sensorMultilevelGet()
 	cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
-	// TODO: get protection status
+	cmds << zwave.protectionV1.protectionGet()
 	cmds << zwave.manufacturerSpecificV2.manufacturerSpecificGet()
 	sendHubCommand(cmds, 500)
 }
@@ -279,12 +293,19 @@ def sync() {
 		log.debug("${device.displayName} - sync() -> setting new wakeUpInterval to ${state.wakeUpInterval.pendingValue} seconds")
 		cmds << zwave.wakeUpV2.wakeUpIntervalSet(seconds: state.wakeUpInterval.pendingValue as Integer, nodeid: zwaveHubNodeId)
 		cmds << zwave.wakeUpV2.wakeUpIntervalGet()
+	} else if(state.wakeUpInterval.deviceValue == null) {
+		cmds << zwave.wakeUpV2.wakeUpIntervalGet()
 	}
 	if(state.heatingSetpoint.pendingValue && state.heatingSetpoint.pendingValue != state.heatingSetpoint.deviceValue) {
 		log.debug("${device.displayName} - sync() -> setting new heating setpoint to ${state.heatingSetpoint.pendingValue}")
 		cmds << zwave.thermostatSetpointV1.thermostatSetpointSet(setpointType: 1, scale: state.scale,
 				precision: state.precision, scaledValue: state.heatingSetpoint.pendingValue)
 		cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
+	} else if(state.heatingSetpoint.deviceValue == null) {
+		cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
+	}
+	if(state.protection.deviceValue == null) {
+		cmds << zwave.protectionV1.protectionGet()
 	}
 	cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
 	state.wakeUpInterval.pendingValue = null
