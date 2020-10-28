@@ -137,7 +137,8 @@ def parse(String description) {
 		// 0x31 = SensorMultilevel
 		// 0x84 = WakeUp
 		// 0x75 = Protection
-		def zwcmd = zwave.parse(description, [0x80:1, 0x72:2, 0x42:1, 0x43:2, 0x31:3, 0x84:2, 0x75:2])
+		// 0x8F = MultiCmd
+		def zwcmd = zwave.parse(description, [0x80:1, 0x72:2, 0x42:1, 0x43:2, 0x31:3, 0x84:2, 0x75:1, 0x8F:1])
 		if (zwcmd) {
 			result = zwaveEvent(zwcmd)
 		} else {
@@ -238,8 +239,9 @@ def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
 	state.wakeUpInterval.deviceValue = cmd.seconds
 }
 
-def zwaveEvent(physicalgraph.zwave.commands.protectionv2.ProtectionReport cmd) {
-	log.debug("${device.displayName} - ProtectionReport received with localState=${cmd.localProtectionState} rfState=${cmd.rfProtectionState}")
+def zwaveEvent(physicalgraph.zwave.commands.protectionv1.ProtectionReport cmd) {
+	log.debug("${device.displayName} - ProtectionReport received with state=${cmd.protectionState}")
+	state.protection.deviceValue = cmd.protectionState
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
