@@ -18,6 +18,7 @@ metadata {
 		capability "Switch"	
 		capability "Temperature Measurement"
 		capability "Thermostat Heating Setpoint"
+		capability "Lock"
 		capability "Configuration"
 		capability "Battery"
 
@@ -242,6 +243,15 @@ def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
 def zwaveEvent(physicalgraph.zwave.commands.protectionv1.ProtectionReport cmd) {
 	log.debug("${device.displayName} - ProtectionReport received with state=${cmd.protectionState}")
 	state.protection.deviceValue = cmd.protectionState
+	def lock = device.currentState("lock")
+	if(lock) {
+		if((lock.value == "locked" && cmd.protectionState == 0) ||
+			(lock.value == "unlocked" && cmd.protectionState == 2)) {
+			sendLockEvent(cmd.protectionState, true)
+		}
+	} else {
+		sendLockEvent(cmd.protectionState, true)
+	}
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
@@ -275,6 +285,25 @@ def off() {
 	setHeatingSetpoint(getTempInLocalScale(4, "C"))
 }
 
+def lock() {
+	log.debug("${device.displayName} - lock()")
+	def lock = device.currentState("lock")
+	if(lock && lock.value == "locked")
+		return
+	state.protection.pendingValue = 2 // PROTECTION_STATE_NO_OPERATION_POSSIBLE
+	sendLockEvent(state.protection.pendingValue, true)
+}
+
+def unlock() {
+	log.debug("${device.displayName} - unlock()")
+	def lock = device.currentState("lock")
+	if(lock && lock.value == "unlocked")
+		return
+	state.protection.pendingValue = 0 // PROTECTION_STATE_UNPROTECTED
+	sendLockEvent(state.protection.pendingValue, true)
+}
+
+// further implementations
 def initSync() {
 	log.debug("${device.displayName} - Executing initSync()")
 	def cmds = []
@@ -306,13 +335,18 @@ def sync() {
 	} else if(state.heatingSetpoint.deviceValue == null) {
 		cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
 	}
-	if(state.protection.deviceValue == null) {
+	if(state.protection.pendingValue && state.protection.pendingValue != state.protection.deviceValue) {
+		log.debug("${device.displayName} - sync() -> setting protection state to ${state.protection.pendingValue}")
+		cmds << zwave.protectionV1.protectionSet(protectionState: state.protection.pendingValue)
+		cmds << zwave.protectionV1.protectionGet()
+	} else if(state.protection.deviceValue == null) {
 		cmds << zwave.protectionV1.protectionGet()
 	}
 	cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
 	state.wakeUpInterval.pendingValue = null
 	state.heatingSetpoint.pendingValue = null
-	sendHubCommand(cmds, 500)
+	state.protection.pendingValue = null
+	sendHubCommand(zwave.multiCmdV1.multiCmdEncap().encapsulate(cmds.collect { cmd -> cmd.format() }))
 }
 
 def enforceSetpointLimits(targetValue) {
@@ -356,6 +390,11 @@ def sendHeatingSetpointEvent(scaledValue, scale, displayed) {
 	def setpoint = getTempInLocalScale(scaledValue, scale)
 	def unit = getTemperatureScale()		
 	sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, displayed: displayed)
+}
+
+def sendLockEvent(protectionState, displayed) {
+	if(protectionState != 0 && protectionState != 2) return
+	sendEvent(name: "lock", value: protectionState == 0 ? "unlocked" : "locked", displayed: displayed)
 }
 
 def getSwitchState(setpoint, scale) {
