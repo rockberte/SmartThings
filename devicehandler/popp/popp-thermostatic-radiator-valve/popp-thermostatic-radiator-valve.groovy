@@ -64,9 +64,14 @@ metadata {
 		valueTile("battery", "device.battery", inactiveLabel: false, width: 2, height: 2, decoration: "flat") {
 			state "battery", label:'${currentValue}%\n battery', unit:"%"
 		}
+		
+		standardTile("lock", "device.lock", height: 2, width: 2, decoration: "flat") {
+			state "unlocked", action:"lock", label: "unlocked", icon: "st.locks.lock.unlocked", backgroundColor:"#ffffff"
+			state "locked", action:"unlock", label: "locked", icon: "st.locks.lock.locked", backgroundColor:"#00a0dc"
+		}
 
 		main "temperature"
-		details(["temperature", "heatingSetpoint", "switch", "battery"])
+		details(["temperature", "heatingSetpoint", "switch", "lock", "battery"])
 	}
 
 	preferences {
@@ -240,18 +245,23 @@ def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
 	state.wakeUpInterval.deviceValue = cmd.seconds
 }
 
-def zwaveEvent(physicalgraph.zwave.commands.protectionv1.ProtectionReport cmd) {
-	log.debug("${device.displayName} - ProtectionReport received with state=${cmd.protectionState}")
-	state.protection.deviceValue = cmd.protectionState
+def zwaveEvent(physicalgraph.zwave.commands.protectionv2.ProtectionReport cmd) {
+	log.debug("${device.displayName} - ProtectionReport received with state=${cmd.localProtectionState}")
+	state.protection.deviceValue = cmd.localProtectionState
 	def lock = device.currentState("lock")
 	if(lock) {
-		if((lock.value == "locked" && cmd.protectionState == 0) ||
-			(lock.value == "unlocked" && cmd.protectionState == 2)) {
-			sendLockEvent(cmd.protectionState, true)
+		if((lock.value == "locked" && cmd.localProtectionState == 0) ||
+			(lock.value == "unlocked" && cmd.localProtectionState == 2)) {
+			sendLockEvent(cmd.localProtectionState, true)
 		}
 	} else {
-		sendLockEvent(cmd.protectionState, true)
+		sendLockEvent(cmd.localProtectionState, true)
 	}
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.multicmdv1.MultiCmdEncap cmd) {
+	log.debug("${device.displayName} - MultiCmdEncap received with ${cmd.numberOfCommands} commands")
+	cmd.encapsulatedCommands().collect { encapsulatedCommand -> zwaveEvent(encapsulatedCommand)	}.flatten()
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
