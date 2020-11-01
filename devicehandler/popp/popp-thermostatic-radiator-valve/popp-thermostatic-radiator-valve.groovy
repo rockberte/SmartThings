@@ -251,7 +251,7 @@ def zwaveEvent(physicalgraph.zwave.commands.protectionv2.ProtectionReport cmd) {
 	def lock = device.currentState("lock")
 	if(lock) {
 		if((lock.value == "locked" && cmd.localProtectionState == 0) ||
-			(lock.value == "unlocked" && cmd.localProtectionState == 2)) {
+			(lock.value == "unlocked" && cmd.localProtectionState != 0)) {
 			sendLockEvent(cmd.localProtectionState, true)
 		}
 	} else {
@@ -300,7 +300,7 @@ def lock() {
 	def lock = device.currentState("lock")
 	if(lock && lock.value == "locked")
 		return
-	state.protection.pendingValue = 2 // PROTECTION_STATE_NO_OPERATION_POSSIBLE
+	state.protection.pendingValue = 1 // PROTECTION_STATE_PROTECTION_BY_SEQUENCE
 	sendLockEvent(state.protection.pendingValue, true)
 }
 
