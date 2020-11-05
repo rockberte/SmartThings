@@ -88,7 +88,6 @@ metadata {
 }
 
 def initStates() {
-	sendEvent(name: "heatingSetpointRange", value: [minHeatingSetpointTemperature, maxHeatingSetpointTemperature], displayed: false)
 	if(state.heatingSetpoint == null)
 		state.heatingSetpoint = [pendingValue: null, deviceValue: null, appValue: null]
 	if(state.wakeUpInterval == null)
@@ -345,13 +344,15 @@ def updateHeatingSetpoint() {
 }
 
 def sendHeatingSetpointEvent(scaledValue, displayed) {
-	sendHeatingSetpointEvent(scaledValue, state.scale == 1 ? "F" : "C")
+	sendHeatingSetpointEvent(scaledValue, state.scale == 1 ? "F" : "C", displayed)
 }
 
 def sendHeatingSetpointEvent(scaledValue, scale, displayed) {
 	def setpoint = getTempInLocalScale(scaledValue, scale)
-	def unit = getTemperatureScale()		
-	sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, displayed: displayed)
+	def unit = getTemperatureScale()
+	def minHeatingSetpoint = getTempInLocalScale(4, "C")
+	def maxHeatingSetpoint = getTempInLocalScale(28, "C")
+	sendEvent(name: "heatingSetpoint", value: setpoint, unit: unit, constraints: [min: minHeatingSetpoint, max: maxHeatingSetpoint], displayed: displayed)
 }
 
 def getSwitchState(setpoint, scale) {
