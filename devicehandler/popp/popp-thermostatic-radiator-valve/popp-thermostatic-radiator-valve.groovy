@@ -296,8 +296,8 @@ def off() {
 }
 
 def lock() {
-	log.debug("${device.displayName} - lock()")
 	def lock = device.currentState("lock")
+	log.debug("${device.displayName} - lock(), currentState=${lock?.value}")
 	if(lock && lock.value == "locked")
 		return
 	state.protection.pendingValue = 1 // PROTECTION_STATE_PROTECTION_BY_SEQUENCE
@@ -305,8 +305,8 @@ def lock() {
 }
 
 def unlock() {
-	log.debug("${device.displayName} - unlock()")
-	def lock = device.currentState("lock")
+	def lock = device.currentState("lock")	
+	log.debug("${device.displayName} - unlock(), currentState=${lock?.value}")
 	if(lock && lock.value == "unlocked")
 		return
 	state.protection.pendingValue = 0 // PROTECTION_STATE_UNPROTECTED
@@ -403,7 +403,6 @@ def sendHeatingSetpointEvent(scaledValue, scale, displayed) {
 }
 
 def sendLockEvent(protectionState, displayed) {
-	if(protectionState != 0 && protectionState != 2) return
 	sendEvent(name: "lock", value: protectionState == 0 ? "unlocked" : "locked", displayed: displayed)
 }
 
