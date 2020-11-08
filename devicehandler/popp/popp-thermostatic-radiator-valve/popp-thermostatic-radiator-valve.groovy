@@ -87,20 +87,10 @@ metadata {
 	}
 }
 
-def initStates() {
-	if(state.heatingSetpoint == null)
-		state.heatingSetpoint = [pendingValue: null, deviceValue: null, appValue: null]
-	if(state.wakeUpInterval == null)
-		state.wakeUpInterval = [pendingValue: null, deviceValue: null]
-	state.lastHeatingSetpoint = null
-	if(state.thermostatMode == null)
-		state.thermostatMode = "heat"
-}
-
 def installed() {
 	log.debug("${device.displayName} - installed()")
 	initStates()
-	state.initPending = true
+	initSync()
 }
 
 def updated() {
@@ -108,16 +98,13 @@ def updated() {
 		return
 	}
 	log.debug("${device.displayName} - updated()")
-	initStates()
 	if(settings.wakeUpInterval != null) {
 		def settingsIntervalInSeconds = (settings.wakeUpInterval as Integer) * 60
 		if(state.wakeUpInterval.pendingValue != settingsIntervalInSeconds) { 
 			state.wakeUpInterval.pendingValue = settingsIntervalInSeconds
+			log.debug("${device.displayName} - wakeUpIntervalSet pending: ${settingsIntervalInSeconds}s")
 		}
-	}
-	if(state.initPending) {
-		runIn(1, "initSync", [overwrite: true])
-	}
+	}	
 	state.lastUpdated = now()
 }
 
@@ -218,18 +205,12 @@ def zwaveEvent(physicalgraph.zwave.commands.manufacturerspecificv2.ManufacturerS
 	if (cmd.productId) {
 		updateDataValue("productId", cmd.productId.toString())
 	}
-	state.initPending = false
-	runIn(1, "sync", [overwrite: true])
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpNotification cmd) {
 	log.debug("${device.displayName} - WakeUpNotification received")
 	sendEvent(descriptionText: "${device.displayName} woke up", isStateChange: true)
-	if(state.initPending) {
-		runIn(1, "initSync", [overwrite: true])
-	} else {
-		runIn(1, "sync", [overwrite: true])
-	}
+	runIn(1, "sync", [overwrite: true])
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
@@ -251,7 +232,7 @@ def setHeatingSetpoint(degrees) {
 	log.debug("${device.displayName} - setHeatingSetpoint(${degrees})")
 	if (degrees) {
 		state.heatingSetpoint.appValue = degrees.toDouble()
-		runIn(2, "updateHeatingSetpoint", [overwrite: true])
+		runIn(1, "updateHeatingSetpoint", [overwrite: true])
 	}
 }
 
@@ -274,16 +255,27 @@ def off() {
 }
 
 // further implementations
+def initStates() {
+	if(state.heatingSetpoint == null)
+		state.heatingSetpoint = [pendingValue: null, deviceValue: null, appValue: null]
+	if(state.wakeUpInterval == null)
+		state.wakeUpInterval = [pendingValue: null, deviceValue: null]
+	state.lastHeatingSetpoint = null
+	if(state.thermostatMode == null)
+		state.thermostatMode = "heat"
+}
+
 def initSync() {
 	log.debug("${device.displayName} - Executing initSync()")
+	def wakeUpIntervalInSeconds = settings.wakeUpInterval == null ? 5 * 60 : (settings.wakeUpInterval as Integer) * 60;
 	def cmds = []
-	cmds << zwave.associationV1.associationSet(groupingIdentifier:1, nodeId:[zwaveHubNodeId])
-	cmds << currentTimeCommand()
+	cmds << zwave.wakeUpV2.wakeUpIntervalSet(seconds: wakeUpIntervalInSeconds)
 	cmds << zwave.wakeUpV2.wakeUpIntervalGet()
+	cmds << currentTimeCommand()
 	cmds << zwave.sensorMultilevelV2.sensorMultilevelGet()
 	cmds << zwave.thermostatSetpointV1.thermostatSetpointGet(setpointType: 1)
 	cmds << zwave.manufacturerSpecificV2.manufacturerSpecificGet()
-	sendHubCommand(cmds, 500)
+	sendHubCommand(multiCmdEncap(cmds))
 }
 
 def sync() {
@@ -307,7 +299,11 @@ def sync() {
 	cmds << zwave.wakeUpV1.wakeUpNoMoreInformation()
 	state.wakeUpInterval.pendingValue = null
 	state.heatingSetpoint.pendingValue = null
-	sendHubCommand(zwave.multiCmdV1.multiCmdEncap().encapsulate(cmds.collect { cmd -> cmd.format() }))
+	sendHubCommand(multiCmdEncap(cmds))
+}
+
+def multiCmdEncap(cmds) {
+	zwave.multiCmdV1.multiCmdEncap().encapsulate(cmds.collect { cmd -> cmd.format() })
 }
 
 def enforceSetpointLimits(targetValue) {
@@ -341,6 +337,7 @@ def updateHeatingSetpoint() {
 		}
 		state.heatingSetpoint.pendingValue = null
 	}
+	log.debug("${device.displayName} - setHeatingSetpoint pending: ${state.heatingSetpoint.pendingValue} ${getDeviceScale()}")
 }
 
 def sendHeatingSetpointEvent(scaledValue, displayed) {
