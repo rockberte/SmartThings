@@ -269,7 +269,7 @@ def initSync() {
 	log.debug("${device.displayName} - Executing initSync()")
 	def wakeUpIntervalInSeconds = settings.wakeUpInterval == null ? 5 * 60 : (settings.wakeUpInterval as Integer) * 60;
 	def cmds = []
-	cmds << zwave.wakeUpV2.wakeUpIntervalSet(seconds: wakeUpIntervalInSeconds)
+	cmds << zwave.wakeUpV2.wakeUpIntervalSet(seconds: wakeUpIntervalInSeconds, nodeid:zwaveHubNodeId)
 	cmds << zwave.wakeUpV2.wakeUpIntervalGet()
 	cmds << currentTimeCommand()
 	cmds << zwave.sensorMultilevelV2.sensorMultilevelGet()
